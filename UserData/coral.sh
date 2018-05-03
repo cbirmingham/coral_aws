@@ -63,3 +63,49 @@ mysql -e "FLUSH PRIVILEGES" >> /root/install-log.txt 2>&1
  mv coral html
  cd html
  chmod -R apache:apache *
+
+# Create sshusers group
+groupadd -g 505 sshusers
+usermod -a -G sshusers ec2-user
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.orig
+echo "" >> /etc/ssh/sshd_config
+echo "# Make an allowance for sshusers; C. Birmingham II" >> /etc/ssh/sshd_config
+echo "AllowGroups sshusers" >> /etc/ssh/sshd_config
+sed -i 's/PermitRootLogin forced-commands-only/#PermitRootLogin forced-commands-only/g' /etc/ssh/sshd_config
+sed -i 's/#PermitRootLogin yes/PermitRootLogin no/g' /etc/ssh/sshd_config
+/etc/init.d/sshd restart
+
+# Install AWS agent
+mkdir -p /stage
+cd /stage
+wget https://d1wk0tztpsntt1.cloudfront.net/linux/latest/install
+bash install
+cd
+
+# Install ClamAV antivirus
+yum -y install clamav clamd clamav-update
+groupadd -g 510 clamav
+useradd -u 510 -g clamav -s /bin/false -c "Clam AntiVirus" clamav
+mkdir -p /data/quarantine
+cp /usr/share/doc/clamav-server-*/clamd.conf /etc/
+cp /etc/freshclam.conf /etc/freshclam.conf.orig
+awk '/Example/{c++;if(c==2){sub("Example","# Example");c=0}}1' /etc/freshclam.conf > /etc/freshclam.conf.tmp
+mv -f /etc/freshclam.conf.tmp /etc/freshclam.conf
+sed -i 's/#DatabaseDirectory/DatabaseDirectory/g' /etc/freshclam.conf
+cp /etc/clamd.conf /etc/clamd.conf.orig
+awk '/Example/{c++;if(c==2){sub("Example","# Example");c=0}}1' /etc/clamd.conf > /etc/clamd.conf.tmp
+mv -f /etc/clamd.conf.tmp /etc/clamd.conf
+sed -i 's/#DatabaseDirectory/DatabaseDirectory/g' /etc/clamd.conf
+cp /etc/sysconfig/freshclam /etc/sysconfig/freshclam.orig
+sed -i 's/FRESHCLAM_DELAY=disabled-warn/# FRESHCLAM_DELAY=disabled-warn/g' /etc/sysconfig/freshclam
+
+# Set up SELinux, changing from enforcing to permissive
+yum -y install selinux-policy selinux-policy-targeted policy policycoreutils-python setools tree
+cp -pr /etc/sysconfig/selinux /etc/sysconfig/selinux.orig
+cp -pr /etc/selinux/config /etc/selinux/config.orig
+cp -pr /boot/grub/menu.lst /boot/grub/menu.lst.orig 
+sed -i 's/SELINUX=enforcing/SELINUX=permissive/g' /etc/sysconfig/selinux
+sed -i 's/SELINUX=enforcing/SELINUX=permissive/g' /etc/selinux/config
+sed -i 's/selinux=0/selinux=1 security=selinux/g' /boot/grub/menu.lst
+touch /.autorelabel
+sync
